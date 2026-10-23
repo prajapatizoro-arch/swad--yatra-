@@ -1,6 +1,7 @@
 node_modules/
 .venv/
 .venv-runtime/
+__pycache__/
 .env
 uploads/*
 !uploads/.gitkeep

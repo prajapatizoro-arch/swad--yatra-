@@ -9,10 +9,11 @@ import json
 import os
 import re
 import time
+from html import escape
 from pathlib import Path
 from uuid import uuid4
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -27,10 +28,17 @@ app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
 ALLOWED_VIDEO_EXTENSIONS = {"mp4", "mov", "webm", "m4v"}
 
 IMAGE = "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=1400&q=85"
+THUMBNAIL_PALETTES = [
+    ("#173d35", "#f3c879", "#efded0"),
+    ("#6b3323", "#f2bc62", "#f6e3ca"),
+    ("#3d4b27", "#d9c37d", "#ecedd9"),
+    ("#44365e", "#e8a85d", "#f0dfd3"),
+    ("#1e5066", "#e5bd68", "#dcebf0"),
+]
 
 
 def recipe(slug, name, region, locality, community, about, ingredients, procedure,
-           benefits, calories, protein, restaurant, *, image=IMAGE, time_to_make="45 min",
+           benefits, calories, protein, restaurant, *, time_to_make="45 min",
            difficulty="Home kitchen"):
     """Keep the heritage collection readable while giving every dish a complete page."""
     return {
@@ -38,13 +46,13 @@ def recipe(slug, name, region, locality, community, about, ingredients, procedur
         "community": community, "about": about, "ingredients": ingredients,
         "procedure": procedure, "benefits": benefits, "calories": calories,
         "protein": protein, "restaurant": restaurant, "map": locality,
-        "image": image, "videoQuery": f"{name} {region} recipe", "videoUrl": None,
+        "image": f"/thumbnails/{slug}.svg", "videoQuery": f"{name} {region} recipe", "videoUrl": None,
         "time": time_to_make, "difficulty": difficulty,
     }
 
 
 RECIPES = [
-    recipe("bhatt-ki-churkani", "Bhatt ki Churkani", "Uttarakhand", "Almora, Kumaon", "Kumaoni", "An earthy slow-cooked black soybean curry once central to Kumaoni winter kitchens.", ["Bhatt / black soybeans", "Jakhya or cumin", "Tomato", "Garlic", "Turmeric", "Mustard oil"], ["Soak bhatt overnight and pressure-cook until tender.", "Temper jakhya, garlic and tomato in mustard oil.", "Crush a handful of beans for body and simmer with spices."], "Warming, high-fibre mountain food rich in plant protein and iron.", "286 kcal", "21 g", "Kumaoni Kothi", image="https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&w=1400&q=85"),
+    recipe("bhatt-ki-churkani", "Bhatt ki Churkani", "Uttarakhand", "Almora, Kumaon", "Kumaoni", "An earthy slow-cooked black soybean curry once central to Kumaoni winter kitchens.", ["Bhatt / black soybeans", "Jakhya or cumin", "Tomato", "Garlic", "Turmeric", "Mustard oil"], ["Soak bhatt overnight and pressure-cook until tender.", "Temper jakhya, garlic and tomato in mustard oil.", "Crush a handful of beans for body and simmer with spices."], "Warming, high-fibre mountain food rich in plant protein and iron.", "286 kcal", "21 g", "Kumaoni Kothi"),
     recipe("patrode", "Patrode", "Karnataka", "Udupi, Coastal Karnataka", "Tuluva", "Colocasia leaves folded around a spiced rice-and-lentil paste, treasured during the coastal monsoon.", ["Colocasia leaves", "Rice", "Toor dal", "Coconut", "Tamarind", "Byadgi chilli"], ["Soak rice and dal, then grind with coconut and tamarind.", "Spread paste over washed leaves and stack them.", "Roll, steam, slice and temper."], "Leafy, filling and naturally gluten-free.", "224 kcal", "7 g", "Mitra Samaj, Udupi", time_to_make="1 hr 10 min", difficulty="Patient steaming"),
     recipe("bhanjari", "Bhanjari Ghosht", "Rajasthan", "Nagaur, Marwar", "Banjara", "A rustic travelling-community mutton curry seasoned simply and cooked patiently over embers.", ["Mutton", "Dried red chillies", "Onion", "Garlic", "Coriander seed", "Ghee"], ["Brown mutton in ghee with spices.", "Add onions, garlic and chillies.", "Add minimal water and braise until tender."], "Protein-dense and sustaining for desert evenings.", "412 kcal", "29 g", "Bhanwar Niwas Kitchen, Nagaur", time_to_make="1 hr 30 min", difficulty="Slow braise"),
     recipe("kodbel", "Kodbel", "Odisha", "Kandhamal", "Kondh", "A gentle tribal millet porridge made with forest greens, once a daily source of strength in hill villages.", ["Finger millet", "Forest greens or spinach", "Pumpkin", "Garlic", "Salt"], ["Cook millet in water until soft.", "Add pumpkin and greens.", "Finish with pounded garlic and salt."], "Calcium-rich, high in fibre and gentle on blood sugar.", "198 kcal", "6 g", "Desia Kitchen, Koraput", time_to_make="40 min", difficulty="One-pot"),
@@ -80,6 +88,29 @@ def save_submissions(items):
 
 def all_recipes():
     return load_submissions() + RECIPES
+
+
+@app.get("/thumbnails/<recipe_id>.svg")
+def thumbnail(recipe_id):
+    item = next((recipe for recipe in all_recipes() if recipe["id"] == recipe_id), None)
+    item = item or {"name": "Community Recipe", "region": "Swad Yatra", "community": "Shared heritage"}
+    colour_index = sum(ord(character) for character in recipe_id) % len(THUMBNAIL_PALETTES)
+    deep, accent, paper = THUMBNAIL_PALETTES[colour_index]
+    name = escape(item["name"])
+    region = escape(item["region"])
+    community = escape(item["community"])
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560" role="img" aria-label="{name} recipe thumbnail">
+      <rect width="800" height="560" fill="{deep}"/>
+      <circle cx="690" cy="95" r="190" fill="{accent}" opacity=".18"/>
+      <path d="M0 450C170 355 315 570 500 455S735 380 800 420V560H0Z" fill="{accent}" opacity=".22"/>
+      <path d="M233 280c0 95 73 150 167 150s167-55 167-150H233Z" fill="{paper}"/>
+      <path d="M215 280h370" stroke="{accent}" stroke-width="25" stroke-linecap="round"/>
+      <path d="M307 241c-32-50 19-70 6-116M400 241c-32-50 19-70 6-116M493 241c-32-50 19-70 6-116" fill="none" stroke="{accent}" stroke-width="12" stroke-linecap="round"/>
+      <text x="55" y="70" fill="{accent}" font-family="Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="3">{region.upper()}</text>
+      <text x="55" y="495" fill="white" font-family="Georgia, serif" font-size="47" font-weight="700" textLength="690" lengthAdjust="spacingAndGlyphs">{name}</text>
+      <text x="55" y="530" fill="{paper}" font-family="Arial, sans-serif" font-size="19">{community} heritage</text>
+    </svg>'''
+    return Response(svg, mimetype="image/svg+xml", headers={"Cache-Control": "public, max-age=3600"})
 
 
 def clean(value):
@@ -140,15 +171,16 @@ def submit_recipe():
         video_url = f"/uploads/{filename}"
 
     slug = re.sub(r"[^a-z0-9]+", "-", fields["name"].lower()).strip("-")
+    recipe_id = f"{slug}-{int(time.time())}"
     item = {
-        "id": f"{slug}-{int(time.time())}", "name": fields["name"], "region": fields["region"],
+        "id": recipe_id, "name": fields["name"], "region": fields["region"],
         "locality": fields["locality"], "community": fields["community"], "about": fields["about"],
         "ingredients": [x.strip() for x in re.split(r"[\n,]", fields["ingredients"]) if x.strip()],
         "procedure": [x.strip() for x in fields["procedure"].splitlines() if x.strip()],
         "benefits": fields["benefits"] or "Community-submitted heritage recipe.",
         "calories": fields["calories"] or "—", "protein": fields["protein"] or "—",
         "restaurant": fields["restaurant"] or "Ask locally for this heritage dish",
-        "map": fields["locality"], "image": IMAGE, "videoQuery": None if video_url else f"{fields['name']} recipe",
+        "map": fields["locality"], "image": f"/thumbnails/{recipe_id}.svg", "videoQuery": None if video_url else f"{fields['name']} recipe",
         "videoUrl": video_url, "time": "Community recipe", "difficulty": "Shared tradition", "isSubmission": True,
     }
     submissions = load_submissions()
